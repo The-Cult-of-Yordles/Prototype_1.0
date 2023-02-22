@@ -8,6 +8,7 @@ public class Hello : MonoBehaviour
     void Start()
     {
         Debug.Log("ni shi ge da sha bi");
+        Debug.Log("ni shi ge chao ji da sha bi");
         
     }
 
