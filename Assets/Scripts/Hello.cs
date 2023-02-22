@@ -7,6 +7,7 @@ public class Hello : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        Debug.Log("ni shi ge da sha bi");
         
     }
 
