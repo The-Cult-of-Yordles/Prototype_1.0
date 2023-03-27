@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Quaternion = UnityEngine.Quaternion;
+using Vector3 = UnityEngine.Vector3;
 
 public class TestRig : MonoBehaviour
 {
@@ -12,26 +14,17 @@ public class TestRig : MonoBehaviour
     [SerializeField] InputAction turnLeft;
     [SerializeField] InputAction turnRight;
 
-    [SerializeField] Rigidbody rb;
     [SerializeField] GameObject debugSphere;
 
     public float speed;
     public float turnSpeed;
     private List<GameObject> spheres;
+    private float fixedHeight = 2f;
+    private Vector3[] idealPoints;
 
-    private float fixedHeight;
-
-    private Vector3 d0;
-    private Vector3 d1;
-    private Vector3 d2;
-    private Vector3 d3;
-    private Vector3 d4;
-
-    private Vector3 upNormal;
-    
     void Start()
     {
-        rb = GetComponent<Rigidbody>();
+        idealPoints = new Vector3[5];
         spheres = new List<GameObject>();
     }
 
@@ -48,18 +41,16 @@ public class TestRig : MonoBehaviour
         Vector3 _left = -transform.right * b;
 
         Vector3 all = (_forward + _backward + _right + _left).normalized;
-        rb.velocity = all * (speed * Time.deltaTime);
         
         bool rLeft = turnRight.ReadValue<float>() > 0.01f;
         bool rRight = turnLeft.ReadValue<float>() > 0.01f;
 
         if (rRight)
         {
-            transform.Rotate(new Vector3(0, -1 * (Time.deltaTime * turnSpeed), 0));
-        }
-        if (rLeft)
+            transform.rotation *= quaternion.Euler(-transform.up * (Time.deltaTime * turnSpeed));
+        } else if (rLeft)
         {
-            transform.Rotate(new Vector3(0, 1 * (Time.deltaTime * turnSpeed), 0));
+            transform.rotation *= quaternion.Euler(transform.up * (Time.deltaTime * turnSpeed));
         }
         
         for (int i = 0; i < spheres.Count; i++)
@@ -73,74 +64,47 @@ public class TestRig : MonoBehaviour
         UpdateRayDir();
         HandleRaycast();
 
-        transform.rotation = Quaternion.LookRotation(transform.forward, upNormal);
+        Collider[] c = Physics.OverlapSphere(transform.position, 20);
+        Vector3 p = c[0].ClosestPoint(transform.position);
+        float closest = (transform.position - p).magnitude;
+        foreach (var collider in c)
+        {
+            Vector3 _p = collider.ClosestPoint(transform.position);
+            float closer = (transform.position - _p).magnitude;
+            if (closer < closest + 0.1f)
+            {
+                p = _p;
+            }
+        }
+        DebugSphere(p, 1);
+        Vector3 upNormal = (transform.position - p).normalized;
+        
+        Quaternion _r = Quaternion.LookRotation(Vector3.Cross(transform.right,upNormal), upNormal);
+        transform.rotation = _r;
+
+        transform.position = p + (transform.position - p).normalized * fixedHeight;
+        transform.position += all * (speed * Time.deltaTime);
     }
 
     private void UpdateRayDir()
     {
         var position = transform.position;
 
-        d0 = position - transform.up;
-        d1 = position - transform.right + transform.forward - transform.up;
-        d2 = position + transform.right + transform.forward - transform.up;
-        d3 = position - transform.right - transform.forward - transform.up;
-        d4 = position + transform.right - transform.forward - transform.up;
+        idealPoints[0] = position - transform.up;
+        idealPoints[1] = position - transform.right + transform.forward - transform.up;
+        idealPoints[2] = position + transform.right + transform.forward - transform.up;
+        idealPoints[3] = position - transform.right - transform.forward - transform.up;
+        idealPoints[4] = position + transform.right - transform.forward - transform.up;
     }
     
     void HandleRaycast()
     {
-        Vector3 p = transform.position;
-        Ray r0 = new Ray(p, (d0 - p) * 2);
-        Ray r1 = new Ray(p, (d1 - p) * 2);
-        Ray r2 = new Ray(p, (d2 - p) * 2);
-        Ray r3 = new Ray(p, (d3 - p) * 2);
-        Ray r4 = new Ray(p, (d4 - p) * 2);
-
-        RaycastHit h0;
-        RaycastHit h1;
-        RaycastHit h2;
-        RaycastHit h3;
-        RaycastHit h4;
-
-        Physics.Raycast(r0, out h0);
-        Physics.Raycast(r1, out h1);
-        Physics.Raycast(r2, out h2);
-        Physics.Raycast(r3, out h3);
-        Physics.Raycast(r4, out h4);
-
-        Vector3 p0 = h0.point;
-        Vector3 p1 = h1.point;
-        Vector3 p2 = h2.point;
-        Vector3 p3 = h3.point;
-        Vector3 p4 = h4.point;
-
-        Vector3 n0 = Vector3.Cross(p0 - p2, p1 - p0).normalized;
-        Vector3 n1 = Vector3.Cross(p0 - p1, p3 - p0).normalized;
-        Vector3 n2 = Vector3.Cross(p0 - p4, p2 - p0).normalized;
-        Vector3 n3 = Vector3.Cross(p0 - p3, p4 - p0).normalized;
-
-        upNormal = (n0 + n1 + n2 + n3).normalized;
-        
-        Debug.DrawRay(transform.position, n0, Color.red);
-        Debug.DrawRay(transform.position, n1, Color.red);
-        Debug.DrawRay(transform.position, n2, Color.red);
-        Debug.DrawRay(transform.position, n3, Color.red);
-        Debug.DrawRay(transform.position, upNormal * 10, Color.blue);
-        
-        DebugSphere(d0, 0.3f);
-        DebugSphere(d1, 0.3f);
-        DebugSphere(d2, 0.3f);
-        DebugSphere(d3, 0.3f);
-        DebugSphere(d4, 0.3f);
-        
-        DebugSphere(p0, 0.3f);
-        DebugSphere(p1, 0.3f);
-        DebugSphere(p2, 0.3f);
-        DebugSphere(p3, 0.3f);
-        DebugSphere(p4, 0.3f);
-
+        DebugSphere(idealPoints[0], 0.3f);
+        DebugSphere(idealPoints[1], 0.3f);
+        DebugSphere(idealPoints[2], 0.3f);
+        DebugSphere(idealPoints[3], 0.3f);
+        DebugSphere(idealPoints[4], 0.3f);
     }
-    
 
     void DebugSphere(Vector3 pos, float scale)
     {
