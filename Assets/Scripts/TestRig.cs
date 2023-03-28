@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Unity.Mathematics;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Quaternion = UnityEngine.Quaternion;
@@ -7,6 +8,11 @@ using Vector3 = UnityEngine.Vector3;
 
 public class TestRig : MonoBehaviour
 {
+    [SerializeField] private Transform frontRightJoint;
+    [SerializeField] private Transform frontLeftJoint;
+    [SerializeField] private Transform backRightJoint;
+    [SerializeField] private Transform backLeftJoint;
+    
     [SerializeField] InputAction forward;
     [SerializeField] InputAction backward;
     [SerializeField] InputAction left;
@@ -16,16 +22,32 @@ public class TestRig : MonoBehaviour
 
     [SerializeField] GameObject debugSphere;
 
+    [SerializeField] private GameObject ds0;
+    [SerializeField] private GameObject ds1;
+    [SerializeField] private GameObject ds2;
+    [SerializeField] private GameObject ds3;
+    [SerializeField] private GameObject ds4;
+    [SerializeField] private GameObject ds5;
+    [SerializeField] private GameObject ds6;
+    [SerializeField] private GameObject ds7;
+    [SerializeField] private GameObject ds8;
+    
+
     public float speed;
     public float turnSpeed;
     private List<GameObject> spheres;
     private float fixedHeight = 2f;
     private Vector3[] idealPoints;
 
+    [SerializeField] private float jointReach;
+
+    private Quaternion previousRotation;
+
     void Start()
     {
         idealPoints = new Vector3[5];
         spheres = new List<GameObject>();
+        previousRotation = transform.rotation;
     }
 
     void Update()
@@ -47,10 +69,11 @@ public class TestRig : MonoBehaviour
 
         if (rRight)
         {
-            transform.rotation *= quaternion.Euler(-transform.up * (Time.deltaTime * turnSpeed));
+            // lol rotations are non-commutative
+            transform.rotation = quaternion.Euler(-transform.up * (Time.deltaTime * turnSpeed)) * transform.rotation;
         } else if (rLeft)
         {
-            transform.rotation *= quaternion.Euler(transform.up * (Time.deltaTime * turnSpeed));
+            transform.rotation = quaternion.Euler(transform.up * (Time.deltaTime * turnSpeed)) * transform.rotation;
         }
         
         for (int i = 0; i < spheres.Count; i++)
@@ -62,10 +85,41 @@ public class TestRig : MonoBehaviour
         spheres.Clear();
         
         UpdateRayDir();
-        HandleRaycast();
 
-        Collider[] c = Physics.OverlapSphere(transform.position, 20);
-        Vector3 p = c[0].ClosestPoint(transform.position);
+        Vector3 p = GetClosestPoint(transform.position);
+        DebugSphere(p, 1);
+        Vector3 upNormal = (transform.position - p).normalized;
+        
+        // Quaternion _r = Quaternion.LookRotation(Vector3.Cross(transform.right,upNormal), upNormal);
+        Quaternion rotation = Quaternion.FromToRotation(transform.up, upNormal) * transform.rotation;
+        transform.rotation = Quaternion.Lerp(previousRotation, rotation, 0.05f);
+
+        transform.position = p + (transform.position - p).normalized * fixedHeight;
+        transform.position += all * (speed * Time.deltaTime);
+        
+        HandleLandingPoints();
+        previousRotation = transform.rotation;
+    }
+
+    private void HandleLandingPoints()
+    {
+        Vector3 fl = GetClosestPoint(frontLeftJoint.position, jointReach);
+        Vector3 fr = GetClosestPoint(frontRightJoint.position, jointReach);
+        Vector3 bl = GetClosestPoint(backLeftJoint.position, jointReach);
+        Vector3 br = GetClosestPoint(backRightJoint.position, jointReach);
+        
+    }
+
+    private Vector3 GetClosestPoint(Vector3 jointPos, float maxRadius = 3)
+    {
+        Collider[] c = Physics.OverlapSphere(jointPos, maxRadius);
+        if (c.Length < 1)
+        {
+            Debug.Log("sphere not collide");
+            return jointPos;
+        }
+        
+        Vector3 p = c[0].ClosestPoint(jointPos);
         float closest = (transform.position - p).magnitude;
         foreach (var collider in c)
         {
@@ -76,14 +130,7 @@ public class TestRig : MonoBehaviour
                 p = _p;
             }
         }
-        DebugSphere(p, 1);
-        Vector3 upNormal = (transform.position - p).normalized;
-        
-        Quaternion _r = Quaternion.LookRotation(Vector3.Cross(transform.right,upNormal), upNormal);
-        transform.rotation = _r;
-
-        transform.position = p + (transform.position - p).normalized * fixedHeight;
-        transform.position += all * (speed * Time.deltaTime);
+        return p;
     }
 
     private void UpdateRayDir()
@@ -97,15 +144,6 @@ public class TestRig : MonoBehaviour
         idealPoints[4] = position + transform.right - transform.forward - transform.up;
     }
     
-    void HandleRaycast()
-    {
-        DebugSphere(idealPoints[0], 0.3f);
-        DebugSphere(idealPoints[1], 0.3f);
-        DebugSphere(idealPoints[2], 0.3f);
-        DebugSphere(idealPoints[3], 0.3f);
-        DebugSphere(idealPoints[4], 0.3f);
-    }
-
     void DebugSphere(Vector3 pos, float scale)
     {
         GameObject s = Instantiate(debugSphere, pos, quaternion.Euler(0,0,0));
