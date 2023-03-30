@@ -20,22 +20,19 @@ public class TestRig : MonoBehaviour
     [SerializeField] InputAction turnLeft;
     [SerializeField] InputAction turnRight;
 
-    [SerializeField] GameObject debugSphere;
-
     [SerializeField] private GameObject ds0;
     [SerializeField] private GameObject ds1;
     [SerializeField] private GameObject ds2;
     [SerializeField] private GameObject ds3;
     [SerializeField] private GameObject ds4;
-    [SerializeField] private GameObject ds5;
-    [SerializeField] private GameObject ds6;
-    [SerializeField] private GameObject ds7;
-    [SerializeField] private GameObject ds8;
-    
+
+    public Vector3 _fr;
+    public Vector3 _fl;
+    public Vector3 _br;
+    public Vector3 _bl;
 
     public float speed;
     public float turnSpeed;
-    private List<GameObject> spheres;
     private float fixedHeight = 2f;
     private Vector3[] idealPoints;
 
@@ -43,10 +40,45 @@ public class TestRig : MonoBehaviour
 
     private Quaternion previousRotation;
 
+    private Vector3[] rayDirs = new Vector3[]
+    {
+        new Vector3(1, 0, 0),
+        new Vector3(-1, 0, 0),
+        new Vector3(0, 1, 0),
+        new Vector3(0, -1, 0),
+        new Vector3(0, 0, 1),
+        new Vector3(0, 0, -1),
+        
+        new Vector3(1, 1, 1),
+        new Vector3(-1, 1, 1),
+        new Vector3(1, -1, 1),
+        new Vector3(1, 1, -1),
+        new Vector3(-1, -1, 1),
+        new Vector3(1, -1, -1),
+        new Vector3(-1, 1, -1),
+        new Vector3(-1, -1, -1),
+        
+        new Vector3(1, 1, 0),
+        new Vector3(1, 0, 1),
+        new Vector3(0, 1, 1),
+        
+        new Vector3(-1, 1, 0),
+        new Vector3(1, -1, 0),
+        
+        new Vector3(-1, 0, 1),
+        new Vector3(1, 0, -1),
+        
+        new Vector3(0, -1, 1),
+        new Vector3(0, 1, -1),
+        
+        new Vector3(-1, -1, 0),
+        new Vector3(-1, 0, -1),
+        new Vector3(0, -1, -1),
+    };
+
     void Start()
     {
         idealPoints = new Vector3[5];
-        spheres = new List<GameObject>();
         previousRotation = transform.rotation;
     }
 
@@ -67,47 +99,113 @@ public class TestRig : MonoBehaviour
         bool rLeft = turnRight.ReadValue<float>() > 0.01f;
         bool rRight = turnLeft.ReadValue<float>() > 0.01f;
 
+        
+        UpdateRayDir();
+
+        Vector3 p = GetClosestPoint(transform.position);
+        ds0.transform.position = p;
+        Vector3 upNormal = (transform.position - p).normalized;
+        Vector3 averageNormal = upNormal;
+
+        RaycastHit h0;
+        RaycastHit h1;
+        RaycastHit h2;
+        RaycastHit h3;
+
+        Ray r0 = new Ray(frontLeftJoint.position, -transform.up.normalized * 3);
+        Ray r1 = new Ray(frontRightJoint.position, -transform.up.normalized * 3);
+        Ray r2 = new Ray(backLeftJoint.position, -transform.up.normalized * 3);
+        Ray r3 = new Ray(backRightJoint.position, -transform.up.normalized * 3);
+
+        Physics.Raycast(r0, out h0);
+        Physics.Raycast(r1, out h1);
+        Physics.Raycast(r2, out h2);
+        Physics.Raycast(r3, out h3);
+
+        float dist = 5;
+        if ((h0.point - frontLeftJoint.position).magnitude < dist)
+        {
+            averageNormal += (frontLeftJoint.position - h0.point).normalized;
+        }
+        if ((h1.point - frontRightJoint.position).magnitude < dist)
+        {
+            averageNormal += (frontRightJoint.position - h1.point).normalized;
+        }
+        if ((h2.point - backLeftJoint.position).magnitude < dist)
+        {
+            averageNormal += (backLeftJoint.position - h2.point).normalized;
+        }
+        if ((h3.point - backRightJoint.position).magnitude < dist)
+        {
+            averageNormal += (backRightJoint.position - h3.point).normalized;
+        }
+
+        averageNormal = averageNormal.normalized;
+        
+        // this handles rotation based on input
         if (rRight)
         {
-            // lol rotations are non-commutative
             transform.rotation = quaternion.Euler(-transform.up * (Time.deltaTime * turnSpeed)) * transform.rotation;
         } else if (rLeft)
         {
             transform.rotation = quaternion.Euler(transform.up * (Time.deltaTime * turnSpeed)) * transform.rotation;
         }
         
-        for (int i = 0; i < spheres.Count; i++)
-        {
-            GameObject g = spheres[i];
-            spheres[i] = null;
-            Destroy(g);
-        }
-        spheres.Clear();
-        
-        UpdateRayDir();
+        Quaternion rotation = Quaternion.FromToRotation(transform.up, averageNormal) * transform.rotation;
+        // this handles rotation based on surface
+        transform.rotation = rotation;
 
-        Vector3 p = GetClosestPoint(transform.position);
-        DebugSphere(p, 1);
-        Vector3 upNormal = (transform.position - p).normalized;
-        
-        // Quaternion _r = Quaternion.LookRotation(Vector3.Cross(transform.right,upNormal), upNormal);
-        Quaternion rotation = Quaternion.FromToRotation(transform.up, upNormal) * transform.rotation;
-        transform.rotation = Quaternion.Lerp(previousRotation, rotation, 0.05f);
-
+        // this handles fixed height
         transform.position = p + (transform.position - p).normalized * fixedHeight;
+        // this handles movement
         transform.position += all * (speed * Time.deltaTime);
         
         HandleLandingPoints();
+        
+        // this handles rotation lerp
         previousRotation = transform.rotation;
     }
 
     private void HandleLandingPoints()
     {
-        Vector3 fl = GetClosestPoint(frontLeftJoint.position, jointReach);
-        Vector3 fr = GetClosestPoint(frontRightJoint.position, jointReach);
-        Vector3 bl = GetClosestPoint(backLeftJoint.position, jointReach);
-        Vector3 br = GetClosestPoint(backRightJoint.position, jointReach);
-        
+        Vector3 fl = GetClosestPoint(frontLeftJoint.position, jointReach, 0);
+        Vector3 fr = GetClosestPoint(frontRightJoint.position, jointReach, 0);
+        Vector3 bl = GetClosestPoint(backLeftJoint.position, jointReach, 0);
+        Vector3 br = GetClosestPoint(backRightJoint.position, jointReach, 0);
+
+        _fr = fr;
+        _fl = fl;
+        _br = br;
+        _bl = bl;
+
+        ds1.transform.position = fl;
+        ds2.transform.position = fr;
+        ds3.transform.position = bl;
+        ds4.transform.position = br;
+    }
+
+
+    private Vector3 GetClosestPoint(Vector3 jointPos, float maxRadius, int x)
+    {
+        Vector3 closest = Vector3.zero;
+        float dist = 100;
+        foreach (var dir in rayDirs)
+        {
+            RaycastHit hit;
+            Ray ray = new Ray(jointPos, dir.normalized * maxRadius);
+            if (Physics.Raycast(ray, out hit))
+            {
+                float d = (jointPos - hit.point).magnitude;
+                if (d < dist && (hit.point - transform.position).magnitude > 2.5)
+                {
+                    dist = d;
+                    closest = hit.point;
+                }
+            }
+            Debug.DrawRay(jointPos, dir.normalized * maxRadius, Color.red);
+
+        }
+        return closest;
     }
 
     private Vector3 GetClosestPoint(Vector3 jointPos, float maxRadius = 3)
@@ -142,13 +240,6 @@ public class TestRig : MonoBehaviour
         idealPoints[2] = position + transform.right + transform.forward - transform.up;
         idealPoints[3] = position - transform.right - transform.forward - transform.up;
         idealPoints[4] = position + transform.right - transform.forward - transform.up;
-    }
-    
-    void DebugSphere(Vector3 pos, float scale)
-    {
-        GameObject s = Instantiate(debugSphere, pos, quaternion.Euler(0,0,0));
-        s.transform.localScale = Vector3.one * scale;
-        spheres.Add(s);
     }
     
     private void OnEnable()
