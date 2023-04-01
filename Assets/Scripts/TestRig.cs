@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
+using System.Net.NetworkInformation;
 using Unity.Mathematics;
-using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.Animations.Rigging;
 using UnityEngine.InputSystem;
 using Quaternion = UnityEngine.Quaternion;
 using Vector3 = UnityEngine.Vector3;
@@ -12,7 +14,7 @@ public class TestRig : MonoBehaviour
     [SerializeField] private Transform frontLeftJoint;
     [SerializeField] private Transform backRightJoint;
     [SerializeField] private Transform backLeftJoint;
-    
+
     [SerializeField] InputAction forward;
     [SerializeField] InputAction backward;
     [SerializeField] InputAction left;
@@ -31,6 +33,11 @@ public class TestRig : MonoBehaviour
     public Vector3 _br;
     public Vector3 _bl;
 
+    public Vector3 frPrevious;
+    public Vector3 flPrevious;
+    public Vector3 brPrevious;
+    public Vector3 blPrevious;
+
     public float speed;
     public float turnSpeed;
     private float fixedHeight = 2f;
@@ -38,48 +45,10 @@ public class TestRig : MonoBehaviour
 
     [SerializeField] private float jointReach;
 
-    private Quaternion previousRotation;
-
-    private Vector3[] rayDirs = new Vector3[]
-    {
-        new Vector3(1, 0, 0),
-        new Vector3(-1, 0, 0),
-        new Vector3(0, 1, 0),
-        new Vector3(0, -1, 0),
-        new Vector3(0, 0, 1),
-        new Vector3(0, 0, -1),
-        
-        new Vector3(1, 1, 1),
-        new Vector3(-1, 1, 1),
-        new Vector3(1, -1, 1),
-        new Vector3(1, 1, -1),
-        new Vector3(-1, -1, 1),
-        new Vector3(1, -1, -1),
-        new Vector3(-1, 1, -1),
-        new Vector3(-1, -1, -1),
-        
-        new Vector3(1, 1, 0),
-        new Vector3(1, 0, 1),
-        new Vector3(0, 1, 1),
-        
-        new Vector3(-1, 1, 0),
-        new Vector3(1, -1, 0),
-        
-        new Vector3(-1, 0, 1),
-        new Vector3(1, 0, -1),
-        
-        new Vector3(0, -1, 1),
-        new Vector3(0, 1, -1),
-        
-        new Vector3(-1, -1, 0),
-        new Vector3(-1, 0, -1),
-        new Vector3(0, -1, -1),
-    };
-
+    private int res = 5;
     void Start()
     {
         idealPoints = new Vector3[5];
-        previousRotation = transform.rotation;
     }
 
     void Update()
@@ -102,7 +71,7 @@ public class TestRig : MonoBehaviour
         
         UpdateRayDir();
 
-        Vector3 p = GetClosestPoint(transform.position);
+        Vector3 p = GetClosestPointRayCast(transform.position);
         ds0.transform.position = p;
         Vector3 upNormal = (transform.position - p).normalized;
         Vector3 averageNormal = upNormal;
@@ -162,73 +131,150 @@ public class TestRig : MonoBehaviour
         
         HandleLandingPoints();
         
-        // this handles rotation lerp
-        previousRotation = transform.rotation;
     }
 
     private void HandleLandingPoints()
     {
-        Vector3 fl = GetClosestPoint(frontLeftJoint.position, jointReach, 0);
-        Vector3 fr = GetClosestPoint(frontRightJoint.position, jointReach, 0);
-        Vector3 bl = GetClosestPoint(backLeftJoint.position, jointReach, 0);
-        Vector3 br = GetClosestPoint(backRightJoint.position, jointReach, 0);
+        Vector3 fl = GetLandingPoint(frontLeftJoint.position, flPrevious, jointReach);
+        Vector3 fr = GetLandingPoint(frontRightJoint.position, frPrevious, jointReach);
+        Vector3 bl = GetLandingPoint(backLeftJoint.position, blPrevious, jointReach);
+        Vector3 br = GetLandingPoint(backRightJoint.position, brPrevious, jointReach);
+        
+        flPrevious = fl;
+        frPrevious = fr;
+        blPrevious = bl;
+        brPrevious = br;
 
         _fr = fr;
         _fl = fl;
         _br = br;
         _bl = bl;
-
-        ds1.transform.position = fl;
-        ds2.transform.position = fr;
-        ds3.transform.position = bl;
-        ds4.transform.position = br;
     }
 
 
-    private Vector3 GetClosestPoint(Vector3 jointPos, float maxRadius, int x)
+    private Vector3 GetLandingPoint(Vector3 jointPos, Vector3 previous, float maxRadius)
     {
-        Vector3 closest = Vector3.zero;
-        float dist = 100;
-        foreach (var dir in rayDirs)
+        RaycastHit hit;
+        
+        // first raycast from body to joint to see if there is collision
+        Vector3 f = jointPos - transform.position;
+        if (Physics.Raycast(transform.position, f, out hit, f.magnitude))
         {
-            RaycastHit hit;
-            Ray ray = new Ray(jointPos, dir.normalized * maxRadius);
-            if (Physics.Raycast(ray, out hit))
-            {
-                float d = (jointPos - hit.point).magnitude;
-                if (d < dist && (hit.point - transform.position).magnitude > 2.5)
-                {
-                    dist = d;
-                    closest = hit.point;
-                }
-            }
-            Debug.DrawRay(jointPos, dir.normalized * maxRadius, Color.red);
-
-        }
-        return closest;
-    }
-
-    private Vector3 GetClosestPoint(Vector3 jointPos, float maxRadius = 3)
-    {
-        Collider[] c = Physics.OverlapSphere(jointPos, maxRadius);
-        if (c.Length < 1)
-        {
-            Debug.Log("sphere not collide");
-            return jointPos;
+            return hit.point;
         }
         
-        Vector3 p = c[0].ClosestPoint(jointPos);
-        float closest = (transform.position - p).magnitude;
-        foreach (var collider in c)
+        // then spherecast from joint position
+        float initial = 0.1f;
+        while (initial < maxRadius)
         {
-            Vector3 _p = collider.ClosestPoint(transform.position);
-            float closer = (transform.position - _p).magnitude;
-            if (closer < closest + 0.1f)
+            if (Physics.SphereCast(jointPos, initial, -transform.up, out hit, initial))
             {
-                p = _p;
+                return hit.point;
+            }
+            
+            initial += 0.1f;
+        }
+        return previous;
+    }
+    private Vector3 GetClosestPointRayCast(Vector3 jointPos, float maxRadius = 3)
+    {
+        float step = 2f / res;
+        RaycastHit hit;
+        float closest = 100f;
+        Vector3 point = Vector3.zero;
+        
+        // xz
+        for (float i = -1f; i < 1f; i+= step)
+        {
+            for (float j = -1f; j < 1f; j+= step)
+            {
+                Vector3 a = Vector3.up + new Vector3(i, 0, j);
+                Vector3 b = Vector3.down + new Vector3(i, 0, j);
+                
+                if (Physics.Raycast(jointPos, a, out hit, 3f))
+                {
+                    Debug.DrawRay(jointPos, a.normalized * maxRadius, Color.red);
+                    if ((hit.point - jointPos).magnitude < closest)
+                    {
+                        point = hit.point;
+                        closest = (hit.point - jointPos).magnitude;
+                    }
+                }
+                if (Physics.Raycast(jointPos, b, out hit, 3f))
+                {
+                    Debug.DrawRay(jointPos, b.normalized * maxRadius, Color.red);
+                    if ((hit.point - jointPos).magnitude < closest)
+                    {
+                        point = hit.point;
+                        closest = (hit.point - jointPos).magnitude;
+                    }
+                }
+                
             }
         }
-        return p;
+        
+        // xy
+        for (float i = -1f; i < 1f; i+= step)
+        {
+            for (float j = -1f; j < 1f; j+= step)
+            {
+                Vector3 a = Vector3.forward + new Vector3(i, j, 0);
+                Vector3 b = Vector3.back + new Vector3(i, j, 0);
+                
+                if (Physics.Raycast(jointPos, a, out hit, 3f))
+                {
+                    Debug.DrawRay(jointPos, a.normalized * maxRadius, Color.blue);
+                    if ((hit.point - jointPos).magnitude < closest)
+                    {
+                        point = hit.point;
+                        closest = (hit.point - jointPos).magnitude;
+                    }
+                }
+                if (Physics.Raycast(jointPos, b, out hit, 3f))
+                {
+                    Debug.DrawRay(jointPos, b.normalized * maxRadius, Color.blue);
+                    if ((hit.point - jointPos).magnitude < closest)
+                    {
+                        point = hit.point;
+                        closest = (hit.point - jointPos).magnitude;
+                    }
+                }
+                
+            }
+        }
+        
+        // yz
+        for (float i = -1f; i < 1f; i+= step)
+        {
+            for (float j = -1f; j < 1f; j+= step)
+            {
+                Vector3 a = Vector3.left + new Vector3(0, i, j);
+                Vector3 b = Vector3.right + new Vector3(0, i, j);
+                
+                if (Physics.Raycast(jointPos, a, out hit, 3f))
+                {
+                    Debug.DrawRay(jointPos, a.normalized * maxRadius, Color.yellow);
+                    if ((hit.point - jointPos).magnitude < closest)
+                    {
+                        point = hit.point;
+                        closest = (hit.point - jointPos).magnitude;
+                    }
+                }
+                if (Physics.Raycast(jointPos, b, out hit, 3f))
+                {
+                    Debug.DrawRay(jointPos, b.normalized * maxRadius, Color.yellow);
+                    if ((hit.point - jointPos).magnitude < closest)
+                    {
+                        point = hit.point;
+                        closest = (hit.point - jointPos).magnitude;
+                    }
+                }
+                
+            }
+        }
+
+        ds1.transform.position = jointPos;
+        return point;
     }
 
     private void UpdateRayDir()

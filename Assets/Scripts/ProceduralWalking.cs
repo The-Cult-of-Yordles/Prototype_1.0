@@ -3,37 +3,30 @@ using UnityEngine;
 
 public class ProceduralWalking : MonoBehaviour
 {
+    // targets
     [SerializeField] private Transform frontLeft;
     [SerializeField] private Transform frontRight;
     [SerializeField] private Transform backLeft;
     [SerializeField] private Transform backRight;
     
+    // landing points
     private Vector3 idealFrontLeft;
     private Vector3 idealBackLeft;
     private Vector3 idealFrontRight;
     private Vector3 idealBackRight;
 
-    private float idealForward = 1.8f;
-    private float idealBackward = 1f;
-    private float idealSide = 1.5f;
-
+    // config
     private float maxLegReach = 5f;
-    private float normalBodyHeight = 3f;
+    private float normalBodyHeight = 2.5f;
     
-    private float stepSize = 5f;
-
     private float walkRate = 0.01f;
-    private float stepHeight = 1.2f;
-
-    private int legCycleIteration = 20;
+    private int legCycleIteration = 15;
 
     private bool frontLeftBackLeftRunning = false;
     private bool backRightFrontRightRunning = false;
 
     private TestRig testRig;
     
-    // walking
-
     private void Start()
     {
         StartCoroutine("FrontLeftBackLeft");
@@ -57,9 +50,7 @@ public class ProceduralWalking : MonoBehaviour
 
     void HandleBodyMovement()
     {
-        Vector3 p = backLeft.position + (frontLeft.position - backLeft.position) / 2.3f;
-        Vector3 q = backRight.position + (frontRight.position - backRight.position) / 2.3f;
-        Vector3 pos = (p + q) / 2;
+        Vector3 pos = (frontLeft.position + frontRight.position + backRight.position + backLeft.position) / 4f;
         pos += transform.up * normalBodyHeight;
         transform.position = pos;
     }
@@ -78,9 +69,12 @@ public class ProceduralWalking : MonoBehaviour
         Debug.DrawRay(transform.position, normal * 10, Color.green);
 
         Vector3 forward =
-            (-Vector3.Cross(fl - fr, normal) -
-             Vector3.Cross(bl - br, normal)).normalized;
-        
+        (
+            Vector3.Cross(normal, fl - fr).normalized +
+            Vector3.Cross(normal, bl - br).normalized +
+            (fl - bl).normalized +
+            (fr - br).normalized
+        ).normalized;
         
         Debug.DrawRay(transform.position, forward * 10, Color.blue);
         
@@ -114,17 +108,6 @@ public class ProceduralWalking : MonoBehaviour
             backRightFrontRightRunning = true;
             StartCoroutine("BackRightFrontRight");
         }
-    }
-
-    Vector3 HandleRayCastHit(Vector3 start, Vector3 dir)
-    {
-        Ray ray = new Ray();
-        RaycastHit hit;
-        start.y += 10;
-        ray.origin = start;
-        ray.direction = dir;
-        Physics.Raycast(ray, out hit);
-        return hit.point;
     }
 
     IEnumerator FrontLeftBackLeft()
