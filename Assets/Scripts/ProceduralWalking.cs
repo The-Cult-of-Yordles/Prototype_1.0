@@ -1,4 +1,6 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class ProceduralWalking : MonoBehaviour
@@ -8,44 +10,49 @@ public class ProceduralWalking : MonoBehaviour
     [SerializeField] private Transform frontRight;
     [SerializeField] private Transform backLeft;
     [SerializeField] private Transform backRight;
-    
-    // landing points
-    private Vector3 idealFrontLeft;
-    private Vector3 idealBackLeft;
-    private Vector3 idealFrontRight;
-    private Vector3 idealBackRight;
 
     // config
     private float maxLegReach = 5f;
-    private float normalBodyHeight = 2.5f;
+    private float normalBodyHeight = 2f;
     
     private float walkRate = 0.01f;
     private int legCycleIteration = 15;
+    private float walkHeight = 1.5f;
 
     private bool frontLeftBackLeftRunning = false;
     private bool backRightFrontRightRunning = false;
 
     private TestRig testRig;
-    
+
+    private Transform[] legs;
+    private Vector3[] landings = new Vector3[4];
+
+    private bool currCouroutineLegMoving = false;
+    private Stack<int> c = new Stack<int>();
+
     private void Start()
     {
-        StartCoroutine("FrontLeftBackLeft");
         testRig = FindObjectOfType<TestRig>();
-        // -right is forward
-        // forward is up 
-        // -up is right 
+        legs = new Transform[]
+        {
+            frontLeft,
+            frontRight,
+            backRight,
+            backLeft
+        };
+        StartCoroutine("MoveLeg");
     }
 
     private void Update()
     {
-        idealFrontLeft = testRig._fl;
-        idealFrontRight = testRig._fr;
-        idealBackLeft = testRig._bl;
-        idealBackRight = testRig._br;
+        landings[0] = testRig._fl;
+        landings[1] = testRig._fr;
+        landings[2] = testRig._br;
+        landings[3] = testRig._bl;
         
         HandleBodyMovement();
         HandleBodyRotation();
-        HandleLegMovement();
+        // HandleLegMovement();
     }
 
     void HandleBodyMovement()
@@ -103,6 +110,7 @@ public class ProceduralWalking : MonoBehaviour
             StartCoroutine("FrontLeftBackLeft");
         }
 
+
         if (!backRightFrontRightRunning)
         {
             backRightFrontRightRunning = true;
@@ -110,30 +118,98 @@ public class ProceduralWalking : MonoBehaviour
         }
     }
 
+    IEnumerator MoveLeg()
+    {
+        bool flip = true;
+        while (true)
+        {
+            for (int i = 0; i < legs.Length; i++)
+            {
+                bool curr = i % 2 == 0;
+
+                if (curr == flip)
+                {
+                    continue;
+                }
+
+                c.Push(1);
+                StartCoroutine("MoveOneLeg", i);
+            }
+
+            flip = !flip;
+            yield return new WaitUntil(() => c.Count == 0);
+        }
+    }
+
+    IEnumerator MoveOneLeg(int i)
+    {
+        Vector3 start = legs[i].transform.position;
+        Vector3 end = landings[i];
+        Vector3 mid = start + (end - start) / 2f + transform.up * walkHeight;
+        
+        if ((start - end).magnitude < 1)
+        {
+            c.Pop();
+            yield break;
+        }
+        
+        float lerpVal = 0;
+        while (lerpVal < 1f)
+        {
+            lerpVal += 1f / legCycleIteration;
+
+            legs[i].transform.position =
+                Vector3.Lerp(
+                    Vector3.Lerp(start, mid, lerpVal),
+                    Vector3.Lerp(mid, end, lerpVal),
+                    lerpVal
+                );
+            yield return new WaitForSeconds(walkRate);
+        }
+        
+        c.Pop();
+    }
+    
     IEnumerator FrontLeftBackLeft()
     {
         Vector3 start = frontLeft.position;
-        Vector3 end = idealFrontLeft;
+        Vector3 end = testRig._fl;
+        Vector3 mid = start + (end - start) + transform.up * walkHeight;
         float lerpStep = 1f / legCycleIteration;
+
+        if ((start - end).magnitude < 1)
+        {
+            frontLeftBackLeftRunning = false;
+            yield break;
+        }
         
         float lerpVal = lerpStep;
         while (lerpVal < 1)
         {
             frontLeft.transform.position =
-                Vector3.Lerp(start, end, lerpVal);
+                Vector3.Lerp(
+                    Vector3.Lerp(start, mid, lerpVal),
+                    Vector3.Lerp(mid, end, lerpVal),
+                    lerpVal
+                );
             lerpVal += lerpStep;
             yield return new WaitForSeconds(walkRate);
         }
 
         // start backleft leg
         start = backLeft.position;
-        end = idealBackLeft;
+        end = testRig._bl;
+        mid = start + (end - start) + transform.up * walkHeight;
         lerpStep = 1f / legCycleIteration;
         lerpVal = lerpStep;
         while (lerpVal < 1)
         {
             backLeft.transform.position =
-                Vector3.Lerp(start, end, lerpVal);
+                Vector3.Lerp(
+                    Vector3.Lerp(start, mid, lerpVal),
+                    Vector3.Lerp(mid, end, lerpVal),
+                    lerpVal
+                );
             lerpVal += lerpStep;
             yield return new WaitForSeconds(walkRate);
         }
@@ -144,30 +220,47 @@ public class ProceduralWalking : MonoBehaviour
     IEnumerator BackRightFrontRight()
     {
         Vector3 start = backRight.position;
-        Vector3 end = idealBackRight;
+        Vector3 end = testRig._br;
+        Vector3 mid = start + (end - start) + transform.up * walkHeight;
         float lerpStep = 1f / legCycleIteration;
+        
+        if ((start - end).magnitude < 1)
+        {
+            backRightFrontRightRunning = false;
+            yield break;
+        }
         
         float lerpVal = lerpStep;
         while (lerpVal < 1)
         {
             backRight.transform.position =
-                Vector3.Lerp(start, end, lerpVal);
+                Vector3.Lerp(
+                    Vector3.Lerp(start, mid, lerpVal),
+                    Vector3.Lerp(mid, end, lerpVal),
+                    lerpVal
+                );
             lerpVal += lerpStep;
             yield return new WaitForSeconds(walkRate);
         }
         
         start = frontRight.position;
-        end = idealFrontRight;
+        end = testRig._fr;
+        mid = start + (end - start) + transform.up * walkHeight;
         lerpStep = 1f / legCycleIteration;
         lerpVal = lerpStep;
         while (lerpVal < 1)
         {
             frontRight.transform.position =
-                Vector3.Lerp(start, end, lerpVal);
+                Vector3.Lerp(
+                    Vector3.Lerp(start, mid, lerpVal),
+                    Vector3.Lerp(mid, end, lerpVal),
+                    lerpVal
+                );
             lerpVal += lerpStep;
             yield return new WaitForSeconds(walkRate);
         }
         // start front right leg
         backRightFrontRightRunning = false;
     }
+    
 }

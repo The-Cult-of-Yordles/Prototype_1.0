@@ -1,10 +1,11 @@
+using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Quaternion = UnityEngine.Quaternion;
 using Vector3 = UnityEngine.Vector3;
 
-public class TestRig : MonoBehaviour
+public class TestRigChain : MonoBehaviour
 {
     [SerializeField] private Transform frontRightJoint;
     [SerializeField] private Transform frontLeftJoint;
@@ -41,23 +42,85 @@ public class TestRig : MonoBehaviour
 
     [SerializeField] private float jointReach;
 
+    [SerializeField] private int segmentCount;
+    [SerializeField] private GameObject segment;
+    [SerializeField] private GameObject joint;
+    private List<GameObject> segments;
+    private List<GameObject> joints;
+
+    private float gap = 1f;
+
     private int res = 10;
     void Start()
     {
         idealPoints = new Vector3[5];
+        InitializeSegments();
+    }
+
+    void InitializeSegments()
+    {
+        segments = new List<GameObject>();
+        joints = new List<GameObject>();
+        Vector3 curr = transform.position;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            segments.Add(Instantiate(segment));
+            joints.Add(Instantiate(joint));
+            joints[i].transform.position = curr - Vector3.forward * gap;
+            segments[i].transform.position = joints[i].transform.position - segments[i].transform.forward * gap;
+            curr = segments[i].transform.position;
+        }
+    }
+
+    void UpdateSegments()
+    {
+        Vector3 curr = transform.position;
+        Vector3 forwardCurr = transform.forward;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            Transform currTransform = segments[i].transform;
+            Vector3 p = GetClosestPointRayCast(currTransform.position);
+            
+            // fixed height
+            Vector3 idealHeight = p + (currTransform.position - p).normalized * fixedHeight;
+            
+            // update normal and forward
+            Vector3 upNormal = (currTransform.position - p).normalized;
+            Vector3 forward = (joints[i].transform.position - currTransform.position).normalized;
+            currTransform.rotation = Quaternion.LookRotation(forward, upNormal);
+            
+            // update position
+            joints[i].transform.position = curr - forwardCurr * gap;
+
+            if ((curr - currTransform.position).magnitude > gap * 2.5f)
+            {
+                /// works but need improvement
+                Vector3 offset = (currTransform.forward + (idealHeight - currTransform.position).normalized).normalized
+                    * (30f * Time.deltaTime);
+                currTransform.position += offset;
+            }
+               
+            
+            // update
+            curr = currTransform.position;
+            forwardCurr = currTransform.forward;
+        }
+        
     }
 
     void Update()
     {
+        UpdateSegments();
+        
         int f = forward.ReadValue<float>() > 0.01f? 1 : 0;
         int b = backward.ReadValue<float>() > 0.01f? 1 : 0;
         int r = right.ReadValue<float>() > 0.01f? 1 : 0;
         int l = left.ReadValue<float>() > 0.01f? 1 : 0;
 
-        Vector3 _forward = transform.forward * l;
-        Vector3 _backward = -transform.forward * r;
-        Vector3 _right = transform.right * f;
-        Vector3 _left = -transform.right * b;
+        Vector3 _forward = transform.forward * f;
+        Vector3 _backward = -transform.forward * b;
+        Vector3 _right = transform.right * r;
+        Vector3 _left = -transform.right * l;
 
         Vector3 all = (_forward + _backward + _right + _left).normalized;
         
@@ -72,38 +135,6 @@ public class TestRig : MonoBehaviour
         Vector3 upNormal = (transform.position - p).normalized;
         Vector3 averageNormal = upNormal;
 
-        RaycastHit h0;
-        RaycastHit h1;
-        RaycastHit h2;
-        RaycastHit h3;
-
-        Ray r0 = new Ray(frontLeftJoint.position, -transform.up.normalized * 3);
-        Ray r1 = new Ray(frontRightJoint.position, -transform.up.normalized * 3);
-        Ray r2 = new Ray(backLeftJoint.position, -transform.up.normalized * 3);
-        Ray r3 = new Ray(backRightJoint.position, -transform.up.normalized * 3);
-
-        Physics.Raycast(r0, out h0);
-        Physics.Raycast(r1, out h1);
-        Physics.Raycast(r2, out h2);
-        Physics.Raycast(r3, out h3);
-
-        float dist = 5;
-        if ((h0.point - frontLeftJoint.position).magnitude < dist)
-        {
-            averageNormal += (frontLeftJoint.position - h0.point).normalized;
-        }
-        if ((h1.point - frontRightJoint.position).magnitude < dist)
-        {
-            averageNormal += (frontRightJoint.position - h1.point).normalized;
-        }
-        if ((h2.point - backLeftJoint.position).magnitude < dist)
-        {
-            averageNormal += (backLeftJoint.position - h2.point).normalized;
-        }
-        if ((h3.point - backRightJoint.position).magnitude < dist)
-        {
-            averageNormal += (backRightJoint.position - h3.point).normalized;
-        }
 
         averageNormal = averageNormal.normalized;
         
